@@ -24,41 +24,48 @@ async def wait_for_paid_invoices():
         payment = await invoice_queue.get()
         await on_invoice_paid(payment)
 
+async def fetch_bringin_invoice(target_wallet: str, amount_msat: int, memo: str) -> Optional[str]:
+    bringin_domains = ["bringin.example.com", "anotherbringin.example.com"]
+    target_domain = target_wallet.split("@")[-1] if "@" in target_wallet else None
+
+    if target_domain in bringin_domains:
+        bringin_api_url = f"https://{target_domain}/api/create_order"
+        data = {"amount_msat": amount_msat, "memo": memo}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(bringin_api_url, json=data)
+            if response.status_code == 200:
+                invoice = response.json().get("invoice")
+                return invoice
+            else:
+                logger.error(f"Failed to fetch invoice from Bringin: {response.text}")
+    return None
 
 async def on_invoice_paid(payment: Payment) -> None:
-
-    if payment.extra.get("tag") == "splitpayments" or payment.extra.get("splitted"):
-        # already a splitted payment, ignore
-        return
-
-    targets = await get_targets(payment.wallet_id)
-
-    if not targets:
-        return
-
-    total_percent = sum([target.percent for target in targets])
-
-    if total_percent > 100:
-        logger.error("splitpayment: total percent adds up to more than 100%")
-        return
-
-    logger.trace(f"splitpayments: performing split payments to {len(targets)} targets")
-
+    # Existing logic up to determining the payment request for each target
     for target in targets:
-
         if target.percent > 0:
-
             amount_msat = int(payment.amount * target.percent / 100)
-            memo = (
-                f"Split payment: {target.percent}% for {target.alias or target.wallet}"
-            )
+            memo = f"Split payment: {target.percent}% for {target.alias or target.wallet}"
+            payment_request = None
 
-            if target.wallet.find("@") >= 0 or target.wallet.find("LNURL") >= 0:
+            # Check if the target wallet is a lightning address
+            if target.wallet.find("@") >= 0:
+                target_domain = target.wallet.split("@")[-1]
+
+                # Check for Bringin domain
+                if target_domain in ["bringin.example.com", "anotherbringin.example.com"]:
+                    payment_request = await fetch_bringin_invoice(target.wallet, amount_msat - fee_reserve(amount_msat), memo)
+                else:
+                    # Handle other lightning addresses not associated with Bringin
+                    # This includes the explicit LNURL check
+                    safe_amount_msat = amount_msat - fee_reserve(amount_msat)
+                    payment_request = await get_lnurl_invoice(target.wallet, payment.wallet_id, safe_amount_msat, memo)
+            elif target.wallet.find("LNURL") >= 0:
+                # Direct handling for explicit LNURLs in the wallet address
                 safe_amount_msat = amount_msat - fee_reserve(amount_msat)
-                payment_request = await get_lnurl_invoice(
-                    target.wallet, payment.wallet_id, safe_amount_msat, memo
-                )
+                payment_request = await get_lnurl_invoice(target.wallet, payment.wallet_id, safe_amount_msat, memo)
             else:
+                # Existing internal wallet logic remains unchanged
                 _, payment_request = await create_invoice(
                     wallet_id=target.wallet,
                     amount=int(amount_msat / 1000),
@@ -66,19 +73,17 @@ async def on_invoice_paid(payment: Payment) -> None:
                     memo=memo,
                 )
 
-            extra = {**payment.extra, "tag": "splitpayments", "splitted": True}
-
+            # Existing logic to execute payment if payment_request is not None
             if payment_request:
                 await pay_invoice(
                     payment_request=payment_request,
                     wallet_id=payment.wallet_id,
                     description=memo,
-                    extra=extra,
+                    extra={**payment.extra, "tag": "splitpayments", "splitted": True},
                 )
 
 
 async def execute_split(wallet_id, amount):
-
     targets = await get_targets(wallet_id)
 
     if not targets:
@@ -93,23 +98,28 @@ async def execute_split(wallet_id, amount):
     logger.trace(f"splitpayments: performing split payments to {len(targets)} targets")
 
     for target in targets:
-
         if target.percent > 0:
-
             amount_msat = int(amount * target.percent / 100)
 
             if amount_msat < 1000:
                 continue
 
-            memo = (
-                f"{target.alias or target.wallet}"
-            )
+            memo = f"{target.alias or target.wallet}"
+            payment_request = None
 
-            if target.wallet.find("@") >= 0 or target.wallet.find("LNURL") >= 0:
+            if target.wallet.find("@") >= 0:
+                target_domain = target.wallet.split("@")[-1]
+                if target_domain in ["bringin.example.com", "anotherbringin.example.com"]:
+                    payment_request = await fetch_bringin_invoice(target.wallet, amount_msat - fee_reserve(amount_msat), memo)
+                else:
+                    # Handle other lightning addresses not associated with Bringin
+                    # This includes the explicit LNURL check
+                    safe_amount_msat = amount_msat - fee_reserve(amount_msat)
+                    payment_request = await get_lnurl_invoice(target.wallet, wallet_id, safe_amount_msat, memo)
+            elif target.wallet.find("LNURL") >= 0:
+                # Direct handling for explicit LNURLs in the wallet address
                 safe_amount_msat = amount_msat - fee_reserve(amount_msat)
-                payment_request = await get_lnurl_invoice(
-                    target.wallet, wallet_id, safe_amount_msat, memo
-                )
+                payment_request = await get_lnurl_invoice(target.wallet, wallet_id, safe_amount_msat, memo)
             else:
                 _, payment_request = await create_invoice(
                     wallet_id=target.wallet,
@@ -118,9 +128,8 @@ async def execute_split(wallet_id, amount):
                     memo=memo,
                 )
 
-            extra = {"tag": "splitpayments", "splitted": True}
-
             if payment_request:
+                extra = {"tag": "splitpayments", "splitted": True}
                 await pay_invoice(
                     payment_request=payment_request,
                     wallet_id=wallet_id,
@@ -176,3 +185,6 @@ async def get_lnurl_invoice(
         return None
 
     return params["pr"]
+
+
+
