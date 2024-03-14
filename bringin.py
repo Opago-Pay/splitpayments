@@ -2,6 +2,7 @@ import argparse
 import httpx
 import sys
 import time
+import json
 import hmac
 import hashlib
 
@@ -10,71 +11,82 @@ parser = argparse.ArgumentParser(description="Request an offramp at Bringin.")
 parser.add_argument("--api_key", type=str, required=True, help="API key for Bringin")
 parser.add_argument("--secret_key", type=str, required=True, help="Secret key for HMAC generation")
 parser.add_argument("--lightning_address", type=str, required=True, help="Lightning address for the transaction")
-parser.add_argument("--amount_sats", type=int, required=True, help="Amount in satoshis to offramp")
+parser.add_argument("--amount_sats", type=str, required=True, help="Amount in satoshis to offramp as a string")
 args = parser.parse_args()
 
 # Function to generate HMAC authorization header
-def generate_hmac_authorization(api_key, secret_key):
-    timestamp = str(int(time.time() * 1000))
-    message = timestamp + api_key
-    signature = hmac.new(secret_key.encode(), message.encode(), hashlib.sha256).hexdigest()
-    return f"HMAC {timestamp}:{signature}"
+def generate_hmac_authorization(api_secret, http_method, path, body):
+    # 1. Fetch the current UNIX timestamp
+    current_time = str(int(time.time() * 1000))
+    
+    # 2. Stringify the body of your request
+    body_string = json.dumps(body)
+    
+    # 3. Calculate the hex encoded MD5 digest of your request body
+    if body:
+        md5_hasher = hashlib.md5()
+        md5_hasher.update(body_string.encode())
+        request_content_hex_string = md5_hasher.hexdigest()
+    else:  # For GET requests or empty bodies
+        request_content_hex_string = '99914b932bd37a50b983c5e7c90ae93b'
+    
+    # 4. Concatenate the UNIX timestamp with the request verb, path, and the requestContentHexString
+    signature_raw_data = current_time + http_method + path + request_content_hex_string
+    
+    # 5. Use your API Secret to create a SHA256 HMAC digest in hex
+    signature = hmac.new(api_secret.encode(), signature_raw_data.encode(), hashlib.sha256).hexdigest()
+    
+    # 6. Finally, create your authorization header
+    authorization_header = f"HMAC {current_time}:{signature}"
+    
+    return authorization_header
 
-# API URLs
-GET_API_KEY_URL = "https://api.bringin.xyz/api/v0/application/api-key"
-GET_EURO_TO_BTC_URL = "https://api.bringin.xyz/api/v0/market/euro-to-btc"
-CREATE_OFFRAMP_ORDER_URL = "https://api.bringin.xyz/api/v0/offramp/order"  # Assuming this is the endpoint
+# Function to fetch the host's public IP address
+async def fetch_public_ip():
+    async with httpx.AsyncClient() as client:
+        response = await client.get("https://httpbin.org/ip")
+        if response.status_code == 200:
+            return response.json()["origin"]
+        else:
+            print("Failed to fetch public IP address:", response.text)
+            sys.exit(1)
 
-async def get_api_key():
-    hmac_authorization = generate_hmac_authorization(args.api_key, args.secret_key)
-    headers_for_api_key = {
-        "api-key": args.api_key,
+# API URL for creating offramp order
+CREATE_OFFRAMP_ORDER_URL = "https://api.bringin.xyz/api/v0/offramp/order"
+
+async def create_offramp_order(api_key, amount_sats):
+    # Define the HTTP method and API endpoint path
+    http_method = "POST"
+    path = "/api/v0/offramp/order"  # Adjust this path as per the actual API endpoint
+
+    # Construct the request body
+    body = {
+        "sourceAmount": amount_sats,
+        "ipAddress": await fetch_public_ip(),  # Assuming fetch_public_ip() fetches the host's IP
+        "label": "OPAGO offramp",
+        "paymentMethod": "LIGHTNING"
+    }
+
+    # Generate the HMAC authorization header
+    hmac_authorization = generate_hmac_authorization(args.secret_key, http_method, path, body)
+
+    # Include the HMAC authorization in the request headers
+    headers = {
+        "api-key": api_key,
         "authorization": hmac_authorization,
         "Content-Type": "application/json"
     }
-    data_for_api_key = {
-        "lightningAddress": args.lightning_address
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(GET_API_KEY_URL, json=data_for_api_key, headers=headers_for_api_key)
-        if response.status_code == 200:
-            return response.json().get("apikey")
-        else:
-            print("Failed to retrieve API key:", response.text)
-            sys.exit(1)
 
-async def get_euro_to_btc_rate():
+    # Make the HTTP request
     async with httpx.AsyncClient() as client:
-        response = await client.get(GET_EURO_TO_BTC_URL)
-        if response.status_code == 200:
-            return response.json().get("rate")
-        else:
-            print("Failed to retrieve Euro to BTC rate:", response.text)
-            sys.exit(1)
-
-async def create_offramp_order(api_key, amount_eur, lightning_address):
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "userId": lightning_address,
-        "amountEur": amount_eur
-    }
-    async with httpx.AsyncClient() as client:
-        response = await client.post(CREATE_OFFRAMP_ORDER_URL, json=data, headers=headers)
+        response = await client.post("https://api.bringin.xyz" + path, json=body, headers=headers)
         if response.status_code == 200:
             print("Offramp order created successfully:", response.json())
-            return response.json()  # Return the response JSON on success
         else:
             print("Failed to create offramp order:", response.text)
-            return response.text  # Return the error text on failure
 
 async def main():
-    api_key = await get_api_key()
-    euro_to_btc_rate = await get_euro_to_btc_rate()
-    amount_eur = (args.amount_sats / 1e8) / euro_to_btc_rate  # Convert satoshis to BTC and then to Euros
-    await create_offramp_order(api_key, amount_eur, args.lightning_address)
+    await create_offramp_order(args.api_key, args.amount_sats)
 
 if __name__ == "__main__":
     import asyncio
