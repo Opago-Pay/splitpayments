@@ -8,7 +8,8 @@ import hmac
 import hashlib
 
 API_BASE_URL = 'https://api.bringin.xyz'
-BRINGIN_ENDPOINT = '/api/v0/application/api-key'
+BRINGIN_ENDPOINT_KEY = '/api/v0/application/api-key'
+BRINGIN_ENDPOINT_OFFRAMP = '/api/v0/offramp/order'
 
 # Setup command-line arguments
 parser = argparse.ArgumentParser(description="Request an offramp at Bringin.")
@@ -18,7 +19,6 @@ parser.add_argument("--lightning_address", type=str, required=True, help="Lightn
 parser.add_argument("--amount_sats", type=str, required=True, help="Amount in satoshis to offramp as a string")
 args = parser.parse_args()
 
-# Function to generate HMAC authorization header
 # Function to generate HMAC authorization header
 def generate_hmac_authorization(api_secret, http_method, path, body):
     # 1. Fetch the current UNIX timestamp in milliseconds
@@ -46,28 +46,32 @@ def generate_hmac_authorization(api_secret, http_method, path, body):
 # Function to fetch the host's public IP address
 async def fetch_public_ip():
     async with httpx.AsyncClient() as client:
-        response = await client.get("https://httpbin.org/ip")
+        response = await client.get("https://api.ipify.org?format=json")
         if response.status_code == 200:
-            return response.json()["origin"]
+            return response.json()["ip"]
         else:
-            print("Failed to fetch public IP address:", response.text)
-            sys.exit(1)
+            raise Exception("Failed to fetch public IP address")
 
 async def fetch_users_api_key(api_key, secret_key, lightning_address):
     body = {
         "lightningAddress": lightning_address
     }
     headers = {
-        'authorization': generate_hmac_authorization(secret_key, "POST", BRINGIN_ENDPOINT, body),
+        'authorization': generate_hmac_authorization(secret_key, "POST", BRINGIN_ENDPOINT_KEY, body),
         'api-key': api_key,
         'Content-Type': 'application/json',
     }
     async with httpx.AsyncClient() as client:
-        response = await client.post(API_BASE_URL + BRINGIN_ENDPOINT, json=body, headers=headers)
+        response = await client.post(API_BASE_URL + BRINGIN_ENDPOINT_KEY, json=body, headers=headers)
         if response.status_code == 200:
-            user_api_key = response.text
-            print("Success fetching user's API key:", user_api_key)
-            return user_api_key
+            response_data = response.json()  # Parse the JSON response
+            user_api_key = response_data.get("apikey")  # Extract the API key
+            if user_api_key:
+                print("Success fetching user's API key:", user_api_key)
+                return user_api_key
+            else:
+                print("API key not found in the response.")
+                return None
         else:
             print("Failed to fetch user's API key:", response.status_code, response.text)
             return None
@@ -75,10 +79,10 @@ async def fetch_users_api_key(api_key, secret_key, lightning_address):
 
 async def create_offramp_order(user_api_key, lightning_address, amount_sats, ip_address, label="OPAGO offramp", payment_method="LIGHTNING", source_id=None):
     body = {
-        "sourceAmount": amount_sats,  # Amount in sats as a string
-        "ipAddress": ip_address,  # Valid IP address
-        "label": label,  # Label for the transaction
-        "paymentMethod": payment_method  # Payment method
+        "sourceAmount": amount_sats,  
+        "ipAddress": ip_address,  
+        "label": label,  
+        "paymentMethod": payment_method  
     }
     # Include sourceId if provided
     if source_id:
@@ -88,8 +92,10 @@ async def create_offramp_order(user_api_key, lightning_address, amount_sats, ip_
         'api-key': user_api_key,
         'Content-Type': 'application/json',
     }
+    print(f"Headers: {headers}")
+    print(f"Body: {json.dumps(body, indent=4)}")
     async with httpx.AsyncClient() as client:
-        response = await client.post(API_BASE_URL + "/api/v0/offramp/order", json=body, headers=headers)
+        response = await client.post(API_BASE_URL + BRINGIN_ENDPOINT_OFFRAMP, json=body, headers=headers)
         if response.status_code == 200:
             print("Offramp order created successfully:", response.json())
         else:
