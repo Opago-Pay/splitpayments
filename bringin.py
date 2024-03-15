@@ -97,9 +97,17 @@ async def create_offramp_order(user_api_key, lightning_address, amount_sats, ip_
     async with httpx.AsyncClient() as client:
         response = await client.post(API_BASE_URL + BRINGIN_ENDPOINT_OFFRAMP, json=body, headers=headers)
         if response.status_code == 200:
-            print("Offramp order created successfully:", response.json())
+            response_data = response.json()  # Parse the JSON response
+            invoice = response_data.get("invoice")  # Extract the invoice text
+            if invoice:
+                print("Offramp order created successfully. Invoice:", invoice)
+                return invoice  # Return the invoice text
+            else:
+                print("Invoice not found in the response.")
+                return None
         else:
-            print("Failed to create offramp order:", response.status_code, response.text)
+            print("Failed to create offramp order. Error code:", response.status_code)
+            return response.status_code  # Return the error code
 
 # Main function to trigger the offramp order creation
 async def main():
