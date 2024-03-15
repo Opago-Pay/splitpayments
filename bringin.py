@@ -72,20 +72,24 @@ async def fetch_users_api_key(api_key, secret_key, lightning_address):
             print("Failed to fetch user's API key:", response.status_code, response.text)
             return None
 
-# API URL for creating offramp order
-CREATE_OFFRAMP_ORDER_URL = "https://api.bringin.xyz/api/v0/offramp/order"
 
-async def create_offramp_order(user_api_key, lightning_address, amount_sats):
+async def create_offramp_order(user_api_key, lightning_address, amount_sats, ip_address, label="OPAGO offramp", payment_method="LIGHTNING", source_id=None):
     body = {
-        "lightningAddress": lightning_address,
-        "amountSats": amount_sats,
+        "sourceAmount": amount_sats,  # Amount in sats as a string
+        "ipAddress": ip_address,  # Valid IP address
+        "label": label,  # Label for the transaction
+        "paymentMethod": payment_method  # Payment method
     }
+    # Include sourceId if provided
+    if source_id:
+        body["sourceId"] = source_id
+
     headers = {
         'api-key': user_api_key,
         'Content-Type': 'application/json',
     }
     async with httpx.AsyncClient() as client:
-        response = await client.post(API_BASE_URL + "/api/v0/offramp/order", json=body, headers=headers)  # Adjust endpoint if necessary
+        response = await client.post(API_BASE_URL + "/api/v0/offramp/order", json=body, headers=headers)
         if response.status_code == 200:
             print("Offramp order created successfully:", response.json())
         else:
@@ -93,9 +97,12 @@ async def create_offramp_order(user_api_key, lightning_address, amount_sats):
 
 # Main function to trigger the offramp order creation
 async def main():
+    # Example placeholders - replace with actual values or logic to obtain them
+    ip_address = await fetch_public_ip()
+
     user_api_key = await fetch_users_api_key(args.api_key, args.secret_key, args.lightning_address)
     if user_api_key:
-        await create_offramp_order(user_api_key, args.lightning_address, args.amount_sats)
+        await create_offramp_order(user_api_key, args.lightning_address, args.amount_sats, ip_address)
 
 if __name__ == "__main__":
     asyncio.run(main())
