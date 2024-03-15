@@ -2,7 +2,7 @@
   "name": "Split Payments",
   "short_description": "Split incoming payments across wallets",
   "tile": "/splitpayments/static/image/split-payments.png",
-  "contributors": ["fiatjaf", "cryptograffiti"],
+  "contributors": ["fiatjaf", "cryptograffiti", "OPAGO"],
   "min_lnbits_version": "0.11.0",
   "bringin_domains": ["bringin.xyz", "bringin.opago-pay.com"]
 }

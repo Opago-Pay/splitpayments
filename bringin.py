@@ -1,7 +1,7 @@
-import argparse
+#import argparse
 import asyncio
 import httpx
-import sys
+#import sys
 import time
 import json
 import hmac
@@ -11,13 +11,13 @@ API_BASE_URL = 'https://api.bringin.xyz'
 BRINGIN_ENDPOINT_KEY = '/api/v0/application/api-key'
 BRINGIN_ENDPOINT_OFFRAMP = '/api/v0/offramp/order'
 
-# Setup command-line arguments
-parser = argparse.ArgumentParser(description="Request an offramp at Bringin.")
-parser.add_argument("--api_key", type=str, required=True, help="API key for Bringin")
-parser.add_argument("--secret_key", type=str, required=True, help="Secret key for HMAC generation")
-parser.add_argument("--lightning_address", type=str, required=True, help="Lightning address for the transaction")
-parser.add_argument("--amount_sats", type=str, required=True, help="Amount in satoshis to offramp as a string")
-args = parser.parse_args()
+# Setup command-line arguments. Only uncomment when using this as standalone script.
+#parser = argparse.ArgumentParser(description="Request an offramp at Bringin.")
+#parser.add_argument("--api_key", type=str, required=True, help="API key for Bringin")
+#parser.add_argument("--secret_key", type=str, required=True, help="Secret key for HMAC generation")
+#parser.add_argument("--lightning_address", type=str, required=True, help="Lightning address for the transaction")
+#parser.add_argument("--amount_sats", type=str, required=True, help="Amount in satoshis to offramp as a string")
+#args = parser.parse_args()
 
 # Function to generate HMAC authorization header
 def generate_hmac_authorization(api_secret, http_method, path, body):
@@ -109,14 +109,14 @@ async def create_offramp_order(user_api_key, lightning_address, amount_sats, ip_
             print("Failed to create offramp order. Error code:", response.status_code)
             return response.status_code  # Return the error code
 
-# Main function to trigger the offramp order creation
-async def main():
+# Main function to trigger the offramp order creation. Only uncomment when using this as standalone script.
+#äasync def main():
     # Example placeholders - replace with actual values or logic to obtain them
-    ip_address = await fetch_public_ip()
+    #ip_address = await fetch_public_ip()
 
-    user_api_key = await fetch_users_api_key(args.api_key, args.secret_key, args.lightning_address)
-    if user_api_key:
-        await create_offramp_order(user_api_key, args.lightning_address, args.amount_sats, ip_address)
+    #user_api_key = await fetch_users_api_key(args.api_key, args.secret_key, args.lightning_address)
+    #if user_api_key:
+    #    await create_offramp_order(user_api_key, args.lightning_address, args.amount_sats, ip_address)
 
-if __name__ == "__main__":
-    asyncio.run(main())
+#if __name__ == "__main__":
+#    asyncio.run(main())
