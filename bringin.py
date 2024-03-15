@@ -1,10 +1,14 @@
 import argparse
+import asyncio
 import httpx
 import sys
 import time
 import json
 import hmac
 import hashlib
+
+API_BASE_URL = 'https://api.bringin.xyz'
+BRINGIN_ENDPOINT = '/api/v0/application/api-key'
 
 # Setup command-line arguments
 parser = argparse.ArgumentParser(description="Request an offramp at Bringin.")
@@ -15,20 +19,18 @@ parser.add_argument("--amount_sats", type=str, required=True, help="Amount in sa
 args = parser.parse_args()
 
 # Function to generate HMAC authorization header
+# Function to generate HMAC authorization header
 def generate_hmac_authorization(api_secret, http_method, path, body):
-    # 1. Fetch the current UNIX timestamp
+    # 1. Fetch the current UNIX timestamp in milliseconds
     current_time = str(int(time.time() * 1000))
     
     # 2. Stringify the body of your request
-    body_string = json.dumps(body)
+    body_string = json.dumps(body, separators=(',', ':')) if body else '{}'
     
     # 3. Calculate the hex encoded MD5 digest of your request body
-    if body:
-        md5_hasher = hashlib.md5()
-        md5_hasher.update(body_string.encode())
-        request_content_hex_string = md5_hasher.hexdigest()
-    else:  # For GET requests or empty bodies
-        request_content_hex_string = '99914b932bd37a50b983c5e7c90ae93b'
+    md5_hasher = hashlib.md5()
+    md5_hasher.update(body_string.encode())
+    request_content_hex_string = md5_hasher.hexdigest()
     
     # 4. Concatenate the UNIX timestamp with the request verb, path, and the requestContentHexString
     signature_raw_data = current_time + http_method + path + request_content_hex_string
@@ -51,43 +53,49 @@ async def fetch_public_ip():
             print("Failed to fetch public IP address:", response.text)
             sys.exit(1)
 
+async def fetch_users_api_key(api_key, secret_key, lightning_address):
+    body = {
+        "lightningAddress": lightning_address
+    }
+    headers = {
+        'authorization': generate_hmac_authorization(secret_key, "POST", BRINGIN_ENDPOINT, body),
+        'api-key': api_key,
+        'Content-Type': 'application/json',
+    }
+    async with httpx.AsyncClient() as client:
+        response = await client.post(API_BASE_URL + BRINGIN_ENDPOINT, json=body, headers=headers)
+        if response.status_code == 200:
+            user_api_key = response.text
+            print("Success fetching user's API key:", user_api_key)
+            return user_api_key
+        else:
+            print("Failed to fetch user's API key:", response.status_code, response.text)
+            return None
+
 # API URL for creating offramp order
 CREATE_OFFRAMP_ORDER_URL = "https://api.bringin.xyz/api/v0/offramp/order"
 
-async def create_offramp_order(api_key, amount_sats):
-    # Define the HTTP method and API endpoint path
-    http_method = "POST"
-    path = "/api/v0/offramp/order"  # Adjust this path as per the actual API endpoint
-
-    # Construct the request body
+async def create_offramp_order(user_api_key, lightning_address, amount_sats):
     body = {
-        "sourceAmount": amount_sats,
-        "ipAddress": await fetch_public_ip(),  # Assuming fetch_public_ip() fetches the host's IP
-        "label": "OPAGO offramp",
-        "paymentMethod": "LIGHTNING"
+        "lightningAddress": lightning_address,
+        "amountSats": amount_sats,
     }
-
-    # Generate the HMAC authorization header
-    hmac_authorization = generate_hmac_authorization(args.secret_key, http_method, path, body)
-
-    # Include the HMAC authorization in the request headers
     headers = {
-        "api-key": api_key,
-        "authorization": hmac_authorization,
-        "Content-Type": "application/json"
+        'api-key': user_api_key,
+        'Content-Type': 'application/json',
     }
-
-    # Make the HTTP request
     async with httpx.AsyncClient() as client:
-        response = await client.post("https://api.bringin.xyz" + path, json=body, headers=headers)
+        response = await client.post(API_BASE_URL + "/api/v0/offramp/order", json=body, headers=headers)  # Adjust endpoint if necessary
         if response.status_code == 200:
             print("Offramp order created successfully:", response.json())
         else:
-            print("Failed to create offramp order:", response.text)
+            print("Failed to create offramp order:", response.status_code, response.text)
 
+# Main function to trigger the offramp order creation
 async def main():
-    await create_offramp_order(args.api_key, args.amount_sats)
+    user_api_key = await fetch_users_api_key(args.api_key, args.secret_key, args.lightning_address)
+    if user_api_key:
+        await create_offramp_order(user_api_key, args.lightning_address, args.amount_sats)
 
 if __name__ == "__main__":
-    import asyncio
     asyncio.run(main())
