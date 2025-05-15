@@ -8,6 +8,7 @@ from loguru import logger
 
 from lnbits import bolt11
 from lnbits.core.crud import get_standalone_payment
+from lnbits.core.crud.wallets import get_wallet_for_key
 from lnbits.core.models import Payment
 from lnbits.core.services import create_invoice, fee_reserve, pay_invoice
 from lnbits.helpers import get_current_extension_name
@@ -53,12 +54,15 @@ async def on_invoice_paid(payment: Payment) -> None:
                 f"Split payment: {target.percent}% for {target.alias or target.wallet}"
             )
 
-            if target.wallet.find("@") >= 0 or target.wallet.find("LNURL") >= 0:
+            if "@" in target.wallet or "LNURL" in target.wallet:
                 safe_amount_msat = amount_msat - fee_reserve(amount_msat)
                 payment_request = await get_lnurl_invoice(
                     target.wallet, payment.wallet_id, safe_amount_msat, memo
                 )
             else:
+                wallet = await get_wallet_for_key(target.wallet)
+                if wallet is not None:
+                    target.wallet = wallet.id
                 _, payment_request = await create_invoice(
                     wallet_id=target.wallet,
                     amount=int(amount_msat / 1000),
@@ -66,15 +70,18 @@ async def on_invoice_paid(payment: Payment) -> None:
                     memo=memo,
                 )
 
-            extra = {**payment.extra, "tag": "splitpayments", "splitted": True}
+            extra = {**payment.extra, "splitted": True}
 
             if payment_request:
-                await pay_invoice(
-                    payment_request=payment_request,
-                    wallet_id=payment.wallet_id,
-                    description=memo,
-                    extra=extra,
+                task = asyncio.create_task(
+                    pay_invoice_in_background(
+                        payment_request=payment_request,
+                        wallet_id=payment.wallet_id,
+                        description=memo,
+                        extra=extra,
+                    )
                 )
+                task.add_done_callback(lambda fut: logger.success(fut.result()))
 
 
 async def execute_split(wallet_id, amount):
@@ -176,3 +183,16 @@ async def get_lnurl_invoice(
         return None
 
     return params["pr"]
+
+
+async def pay_invoice_in_background(payment_request, wallet_id, description, extra):
+    try:
+        await pay_invoice(
+            payment_request=payment_request,
+            wallet_id=wallet_id,
+            description=description,
+            extra=extra,
+        )
+        return f"Splitpayments: paid invoice for {description}"
+    except Exception as e:
+        logger.error(f"Failed to pay invoice: {e}")
