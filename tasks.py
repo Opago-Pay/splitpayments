@@ -51,7 +51,7 @@ async def on_invoice_paid(payment: Payment) -> None:
 
             amount_msat = int(payment.amount * target.percent / 100)
             memo = (
-                f"Split payment: {target.percent}% for {target.alias or target.wallet}"
+                f"{target.alias or target.wallet}"
             )
 
             if "@" in target.wallet or "LNURL" in target.wallet:
