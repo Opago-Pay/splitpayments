@@ -63,12 +63,13 @@ async def on_invoice_paid(payment: Payment) -> None:
                 wallet = await get_wallet_for_key(target.wallet)
                 if wallet is not None:
                     target.wallet = wallet.id
-                _, payment_request = await create_invoice(
+                new_payment = await create_invoice(
                     wallet_id=target.wallet,
                     amount=int(amount_msat / 1000),
                     internal=True,
                     memo=memo,
                 )
+                payment_request = new_payment.bolt11
 
             extra = {**payment.extra, "splitted": True}
 
@@ -118,12 +119,13 @@ async def execute_split(wallet_id, amount):
                     target.wallet, wallet_id, safe_amount_msat, memo
                 )
             else:
-                _, payment_request = await create_invoice(
+                new_payment = await create_invoice(
                     wallet_id=target.wallet,
                     amount=int(amount_msat / 1000),
                     internal=True,
                     memo=memo,
                 )
+                payment_request = new_payment.bolt11
 
             extra = {"tag": "splitpayments", "splitted": True}
 
