@@ -1,4 +1,7 @@
 __pycache__
-node_modules
-.mypy_cache
-.venv
+/.idea/misc.xml
+/.idea/inspectionProfiles/profiles_settings.xml
+/.idea/inspectionProfiles/Project_Default.xml
+/.idea/splitpayments.iml
+/.idea/vcs.xml
+/.idea/workspace.xml

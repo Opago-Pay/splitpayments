@@ -1,3 +1,7 @@
+/* globals Quasar, Vue, _, VueQrcode, windowMixin, LNbits, LOCALE */
+
+Vue.component(VueQrcode.name, VueQrcode)
+
 function hashTargets(targets) {
   return targets
     .filter(isTargetComplete)
@@ -13,14 +17,9 @@ function isTargetComplete(target) {
   )
 }
 
-window.app = Vue.createApp({
+new Vue({
   el: '#vue',
   mixins: [windowMixin],
-  watch: {
-    selectedWallet() {
-      this.getTargets()
-    }
-  },
   data() {
     return {
       selectedWallet: null,
@@ -35,11 +34,11 @@ window.app = Vue.createApp({
   },
   methods: {
     clearTarget(index) {
-      if (this.targets.length == 1) {
+      if(this.targets.length == 1) {
         return this.deleteTargets()
       }
       this.targets.splice(index, 1)
-      Quasar.Notify.create({
+      this.$q.notify({
         message: 'Removed item. You must click to save manually.',
         timeout: 500
       })
@@ -76,7 +75,7 @@ window.app = Vue.createApp({
           }
         )
         .then(response => {
-          Quasar.Notify.create({
+          this.$q.notify({
             message: 'Split payments targets set.',
             timeout: 700
           })
@@ -97,7 +96,7 @@ window.app = Vue.createApp({
               this.selectedWallet.adminkey
             )
             .then(response => {
-              Quasar.Notify.create({
+              this.$q.notify({
                 message: 'Split payments targets deleted.',
                 timeout: 700
               })
@@ -110,5 +109,6 @@ window.app = Vue.createApp({
   },
   created() {
     this.selectedWallet = this.g.user.wallets[0]
+    this.getTargets()
   }
 })

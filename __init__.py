@@ -1,12 +1,13 @@
 import asyncio
-
-from fastapi import APIRouter
 from loguru import logger
 
-from .crud import db
-from .tasks import wait_for_paid_invoices
-from .views import splitpayments_generic_router
-from .views_api import splitpayments_api_router
+from fastapi import APIRouter
+
+from lnbits.db import Database
+from lnbits.helpers import template_renderer
+from lnbits.tasks import create_permanent_unique_task
+
+db = Database("ext_splitpayments")
 
 splitpayments_static_files = [
     {
@@ -17,11 +18,18 @@ splitpayments_static_files = [
 splitpayments_ext: APIRouter = APIRouter(
     prefix="/splitpayments", tags=["splitpayments"]
 )
-splitpayments_ext.include_router(splitpayments_generic_router)
-splitpayments_ext.include_router(splitpayments_api_router)
+
+
+def splitpayments_renderer():
+    return template_renderer(["splitpayments/templates"])
+
+
+from .tasks import wait_for_paid_invoices
+from .views import *  # noqa: F401,F403
+from .views_api import *  # noqa: F401,F403
+
 
 scheduled_tasks: list[asyncio.Task] = []
-
 
 def splitpayments_stop():
     for task in scheduled_tasks:
@@ -30,18 +38,6 @@ def splitpayments_stop():
         except Exception as ex:
             logger.warning(ex)
 
-
 def splitpayments_start():
-    from lnbits.tasks import create_permanent_unique_task
-
     task = create_permanent_unique_task("ext_splitpayments", wait_for_paid_invoices)
     scheduled_tasks.append(task)
-
-
-__all__ = [
-    "db",
-    "splitpayments_ext",
-    "splitpayments_static_files",
-    "splitpayments_start",
-    "splitpayments_stop",
-]
